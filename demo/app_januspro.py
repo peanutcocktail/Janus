@@ -150,7 +150,7 @@ def generate_image(prompt,
         np.random.seed(seed)
     width = 384
     height = 384
-    parallel_size = 5
+    parallel_size = 1
     
     with torch.no_grad():
         messages = [{'role': '<|User|>', 'content': prompt},
