@@ -9,6 +9,8 @@ import numpy as np
 import os
 import time
 # import spaces  # Import spaces for ZeroGPU compatibility
+import devicetorch
+device = devicetorch.get(torch)
 
 
 # Load model and processor
@@ -21,24 +23,26 @@ vl_gpt = AutoModelForCausalLM.from_pretrained(model_path,
                                              trust_remote_code=True)
 if torch.cuda.is_available():
     vl_gpt = vl_gpt.to(torch.bfloat16).cuda()
+elif torch.backends.mps.is_available():
+    vl_gpt = vl_gpt.to(torch.bfloat16).to("mps")
 else:
     vl_gpt = vl_gpt.to(torch.float16)
+dtype = devicetorch.dtype(torch, "bfloat16")
 
 vl_chat_processor = VLChatProcessor.from_pretrained(model_path)
 tokenizer = vl_chat_processor.tokenizer
-cuda_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 @torch.inference_mode()
 # @spaces.GPU(duration=120) 
 # Multimodal Understanding function
 def multimodal_understanding(image, question, seed, top_p, temperature):
     # Clear CUDA cache before generating
-    torch.cuda.empty_cache()
+    devicetorch.empty_cache(torch)
     
     # set seed
     torch.manual_seed(seed)
     np.random.seed(seed)
-    torch.cuda.manual_seed(seed)
+    devicetorch.manual_seed_all(torch, seed)
     
     conversation = [
         {
@@ -52,7 +56,7 @@ def multimodal_understanding(image, question, seed, top_p, temperature):
     pil_images = [Image.fromarray(image)]
     prepare_inputs = vl_chat_processor(
         conversations=conversation, images=pil_images, force_batchify=True
-    ).to(cuda_device, dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16)
+    ).to(device, dtype)
     
     
     inputs_embeds = vl_gpt.prepare_inputs_embeds(**prepare_inputs)
@@ -83,15 +87,15 @@ def generate(input_ids,
              image_token_num_per_image: int = 576,
              patch_size: int = 16):
     # Clear CUDA cache before generating
-    torch.cuda.empty_cache()
+    devicetorch.empty_cache(torch)
     
-    tokens = torch.zeros((parallel_size * 2, len(input_ids)), dtype=torch.int).to(cuda_device)
+    tokens = torch.zeros((parallel_size * 2, len(input_ids)), dtype=torch.int).to(device)
     for i in range(parallel_size * 2):
         tokens[i, :] = input_ids
         if i % 2 != 0:
             tokens[i, 1:-1] = vl_chat_processor.pad_id
     inputs_embeds = vl_gpt.language_model.get_input_embeddings()(tokens)
-    generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).to(cuda_device)
+    generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).to(device)
 
     pkv = None
     for i in range(image_token_num_per_image):
@@ -138,11 +142,11 @@ def generate_image(prompt,
                    guidance=5,
                    t2i_temperature=1.0):
     # Clear CUDA cache and avoid tracking gradients
-    torch.cuda.empty_cache()
+    devicetorch.empty_cache(torch)
     # Set the seed for reproducible results
     if seed is not None:
         torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
+        devicetorch.manual_seed_all(torch, seed)
         np.random.seed(seed)
     width = 384
     height = 384
