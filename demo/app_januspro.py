@@ -22,7 +22,6 @@ vl_gpt = AutoModelForCausalLM.from_pretrained(model_path,
                                              language_config=language_config,
                                              trust_remote_code=True)
 
-torch.set_default_tensor_type(torch.cuda.HalfTensor)
 if torch.cuda.is_available():
     vl_gpt = vl_gpt.to(torch.bfloat16).cuda()
 elif torch.backends.mps.is_available():
